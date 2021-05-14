@@ -20,15 +20,20 @@
  * SOFTWARE.
  *
  */
+@file:Suppress("UNUSED")
 
-package com.github.serivesmejia.eocvsim;
+package com.github.serivesmejia.eocvsim.test
 
-public class Main {
+import com.github.serivesmejia.eocvsim.EOCVSim
+import io.kotest.core.spec.style.StringSpec
+import org.opencv.core.Mat
 
-    public static final EOCVSim eocvSim = new EOCVSim();
-
-    public static void main(String[] args) {
-        eocvSim.init();
+class OpenCvTest : StringSpec({
+    "Loading native library" {
+        EOCVSim.loadOpenCvLib()
     }
 
-}
+    "Creating a Mat" {
+        Mat()
+    }
+})

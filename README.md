@@ -32,7 +32,7 @@ Since OpenCV in Java uses a native library, which is platform specific, the simu
 No complicated setup is required, straight up importing the project into IntelliJ IDEA:
 
 1) **Download & install the Java Development Kit if you haven't already:**<br/><br/>
-      JDK 9 is the minimum required one, although it's not available for download so any JDK above that version will probably work fine.<br/>
+      JDK 8 is the minimum required one, any JDK above that version will probably work fine.<br/>
       You can download it from [the Oracle webpage](https://www.oracle.com/java/technologies/javase-downloads.html),
       and here is a [step by step video](https://www.youtube.com/watch?v=IJ-PJbvJBGs) of the installation process<br/>
 
@@ -66,7 +66,7 @@ No complicated setup is required, straight up importing the project into Intelli
    1) Clone EOCV-Sim repo and cd to the cloned folder
    
 	 git clone https://github.com/serivesmejia/EOCV-Sim.git
-	 cd EOCV-Sim	
+	 cd EOCV-Sim
    \**Or it can also be manually downloaded as a ZIP file from GitHub*<br/>
 
    2) Run EOCV-Sim through gradle:
@@ -125,6 +125,18 @@ For any quick troubleshooting or help, you can find me on Discord as *serivesmej
 For bug reporting or feature requesting, use the [issues tab](https://github.com/serivesmejia/EOCV-Sim/issues) in this repository.
 
 # Change logs
+
+### [v2.2.1 - JVM crashing hotfix](https://github.com/serivesmejia/releases/tag/v2.2.0)
+ 
+   - This is the 8th release for EOCV-Sim
+   
+      - Changelog:
+        - Removed "Java memory" message in the title since it's practically useless for the end user
+        - Updated to Gradle 7.0 for Java 16+ support (#25)
+
+      - Bugfixes:
+        - Fixed JVM crashing error caused by releasing all mats in a MatRecycler finalization (#26)
+        - Improved memory usage by deleting unused BufferedImageRecyclers, memory is now slightly freed when allocating or recycling buffered images of different sizes (which means that the memory usage is reduced a little bit when zooming in the viewport)
 
 ### [v2.2.0 - Variable Tuner Upgrade](https://github.com/serivesmejia/releases/tag/v2.2.0)
  

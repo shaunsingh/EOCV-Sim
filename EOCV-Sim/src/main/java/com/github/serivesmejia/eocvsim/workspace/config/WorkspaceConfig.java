@@ -21,10 +21,16 @@
  *
  */
 
-package com.github.serivesmejia.eocvsim.util.event
+package com.github.serivesmejia.eocvsim.workspace.config;
 
-class KEventListener(val listener: (Int) -> Unit) : EventListener() {
-    override fun run() {
-        listener(id)
-    }
+import java.util.ArrayList;
+
+public class WorkspaceConfig {
+
+    public String sourcesPath = ".";
+    public String resourcesPath = ".";
+
+    public ArrayList<String> excludedPaths = new ArrayList<>();
+    public ArrayList<String> excludedFileExtensions = new ArrayList<>();
+
 }

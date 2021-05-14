@@ -38,8 +38,10 @@ import com.github.serivesmejia.eocvsim.util.SysUtil
 import com.github.serivesmejia.eocvsim.util.event.EventHandler
 import com.github.serivesmejia.eocvsim.util.exception.MaxActiveContextsException
 import com.github.serivesmejia.eocvsim.util.exception.handling.EOCVSimUncaughtExceptionHandler
-import com.github.serivesmejia.eocvsim.util.extension.FileExt.plus
+import com.github.serivesmejia.eocvsim.util.extension.plus
 import com.github.serivesmejia.eocvsim.util.fps.FpsLimiter
+import com.github.serivesmejia.eocvsim.workspace.WorkspaceManager
+import com.github.serivesmejia.eocvsim.workspace.util.VSCodeLauncher
 import nu.pattern.OpenCV
 import org.opencv.core.Size
 import java.awt.Dimension
@@ -47,26 +49,57 @@ import java.io.File
 import javax.swing.SwingUtilities
 import javax.swing.filechooser.FileFilter
 import javax.swing.filechooser.FileNameExtensionFilter
+import kotlin.system.exitProcess
 
 class EOCVSim(val params: Parameters = Parameters()) {
 
     companion object {
-        const val VERSION = "2.2.1"
+        const val VERSION = "3.0.0"
         const val DEFAULT_EOCV_WIDTH = 320
         const val DEFAULT_EOCV_HEIGHT = 240
-        @JvmField val DEFAULT_EOCV_SIZE = Size(DEFAULT_EOCV_WIDTH.toDouble(), DEFAULT_EOCV_HEIGHT.toDouble())
+        @JvmField
+        val DEFAULT_EOCV_SIZE = Size(DEFAULT_EOCV_WIDTH.toDouble(), DEFAULT_EOCV_HEIGHT.toDouble())
 
-        private var alreadyInitializedOnce = false
+        private const val TAG = "EOCVSim"
+
+        private var isNativeLibLoaded = false
+
+        fun loadOpenCvLib() {
+            if (isNativeLibLoaded) return
+
+            Log.info(TAG, "Loading native lib...")
+
+            try {
+                OpenCV.loadLocally()
+                Log.info(TAG, "Successfully loaded native lib")
+            } catch (ex: Throwable) {
+                Log.error(TAG, "Failure loading native lib", ex)
+                Log.info(TAG, "Retrying with old method...")
+
+                if (!SysUtil.loadCvNativeLib()) exitProcess(-1)
+            }
+
+            isNativeLibLoaded = true
+        }
     }
 
-    @JvmField val onMainUpdate = EventHandler("OnMainUpdate")
+    @JvmField
+    val onMainUpdate = EventHandler("OnMainUpdate")
 
-    @JvmField val visualizer = Visualizer(this)
+    @JvmField
+    val visualizer = Visualizer(this)
 
-    @JvmField val configManager      = ConfigManager()
-    @JvmField val inputSourceManager = InputSourceManager(this)
-    @JvmField val pipelineManager    = PipelineManager(this)
-    @JvmField val tunerManager       = TunerManager(this)
+    @JvmField
+    val configManager = ConfigManager()
+    @JvmField
+    val inputSourceManager = InputSourceManager(this)
+    @JvmField
+    val pipelineManager = PipelineManager(this)
+    @JvmField
+    val tunerManager = TunerManager(this)
+
+    @JvmField
+    val workspaceManager = WorkspaceManager(this)
 
     val config: Config
         get() = configManager.config
@@ -75,35 +108,29 @@ class EOCVSim(val params: Parameters = Parameters()) {
 
     val fpsLimiter = FpsLimiter(30.0)
 
-    val eocvSimThread = Thread.currentThread()
+    lateinit var eocvSimThread: Thread
+        private set
+
+    private val hexCode = Integer.toHexString(hashCode())
 
     enum class DestroyReason {
         USER_REQUESTED, THEME_CHANGING, RESTART, CRASH
     }
 
     fun init() {
-        Log.info("EOCVSim", "Initializing EasyOpenCV Simulator v$VERSION")
+        eocvSimThread = Thread.currentThread()
+
+        Log.info(TAG, "Initializing EasyOpenCV Simulator v$VERSION ($hexCode)")
         Log.blank()
 
         EOCVSimUncaughtExceptionHandler.register()
 
         //loading native lib only once in the app runtime
-        if (!alreadyInitializedOnce) {
-            Log.info("EOCVSim", "Loading native lib...")
-            try {
-                OpenCV.loadLocally()
-                Log.info("EOCVSim", "Successfully loaded native lib")
-            } catch (ex: Throwable) {
-                Log.error("EOCVSim", "Failure loading native lib", ex)
-                Log.info("EOCVSim", "Retrying with old method...")
-                SysUtil.loadCvNativeLib()
-            }
-            Log.blank()
-        }
-
-        alreadyInitializedOnce = true
+        loadOpenCvLib()
+        Log.blank()
 
         configManager.init() //load config
+        workspaceManager.init()
 
         visualizer.initAsync(configManager.config.simTheme) //create gui in the EDT
 
@@ -113,9 +140,14 @@ class EOCVSim(val params: Parameters = Parameters()) {
 
         //shows a warning when a pipeline gets "stuck"
         pipelineManager.onPipelineTimeout.doPersistent {
-            visualizer.asyncPleaseWaitDialog("Current pipeline took too long to ${pipelineManager.lastPipelineAction}", "Falling back to DefaultPipeline",
-                "Close", Dimension(310, 150), true, true)
+            visualizer.asyncPleaseWaitDialog(
+                "Current pipeline took too long to ${pipelineManager.lastPipelineAction}",
+                "Falling back to DefaultPipeline",
+                "Close", Dimension(310, 150), true, true
+            )
         }
+
+        inputSourceManager.inputSourceLoader.saveInputSourcesToFile()
 
         visualizer.waitForFinishingInit()
 
@@ -124,19 +156,17 @@ class EOCVSim(val params: Parameters = Parameters()) {
         visualizer.pipelineSelectorPanel.updatePipelinesList() //update pipelines and pick first one (DefaultPipeline)
         visualizer.pipelineSelectorPanel.selectedIndex = 0
 
+        //post output mats from the pipeline to the visualizer viewport
+        pipelineManager.pipelineOutputPosters.add(visualizer.viewport.matPoster)
+
         start()
     }
 
     private fun start() {
-        Log.info("EOCVSim", "Begin EOCVSim loop")
+        Log.info(TAG, "Begin EOCVSim loop")
         Log.blank()
 
-        inputSourceManager.inputSourceLoader.saveInputSourcesToFile()
-
-        //post output mats from the pipeline to the visualizer viewport
-        pipelineManager.pipelineOutputPosters.add(visualizer.viewport.matPoster)
-
-        while(!eocvSimThread.isInterrupted) {
+        while (!eocvSimThread.isInterrupted) {
             //run all pending requested runnables
             onMainUpdate.run()
 
@@ -147,18 +177,35 @@ class EOCVSim(val params: Parameters = Parameters()) {
 
             try {
                 pipelineManager.update(inputSourceManager.lastMatFromSource)
-            } catch(ex: MaxActiveContextsException) { //handles when a lot of pipelines are stuck in the background
-                visualizer.asyncPleaseWaitDialog("There are many pipelines stuck in processFrame running in the background", "To avoid further issues, EOCV-Sim will exit now.",
-                    "Ok", Dimension(430, 150), true, true
+            } catch (ex: MaxActiveContextsException) { //handles when a lot of pipelines are stuck in the background
+                visualizer.asyncPleaseWaitDialog(
+                    "There are many pipelines stuck in processFrame running in the background",
+                    "To avoid further issues, EOCV-Sim will exit now.",
+                    "Ok",
+                    Dimension(430, 150),
+                    true,
+                    true
                 ).onCancel {
                     destroy(DestroyReason.CRASH) //destroy eocv sim when pressing "exit"
                 }
 
                 //print exception
-                Log.error("EOCVSim","Please note that the following exception is likely to be caused by one or more of the user pipelines", ex)
+                Log.error(
+                    TAG,
+                    "Please note that the following exception is likely to be caused by one or more of the user pipelines",
+                    ex
+                )
 
-                while(eocvSimThread.isInterrupted); //block until user closes the async dialog
-                break
+                //block the current thread until the user closes the dialog
+                try {
+                    //using sleep for avoiding burning cpu cycles
+                    Thread.sleep(Long.MAX_VALUE)
+                } catch (ignored: InterruptedException) {
+                    //reinterrupt once user closes the dialog
+                    Thread.currentThread().interrupt()
+                }
+
+                break //bye bye
             }
 
             //updating displayed telemetry
@@ -169,21 +216,21 @@ class EOCVSim(val params: Parameters = Parameters()) {
             fpsLimiter.sync()
         }
 
-        Log.warn("EOCVSim", "Main thread interrupted (" + Integer.toHexString(hashCode()) + ")")
+        Log.warn(TAG, "Main thread interrupted (" + Integer.toHexString(hashCode()) + ")")
     }
 
     fun destroy(reason: DestroyReason) {
-        val hexCode = Integer.toHexString(this.hashCode())
-
-        Log.warn("EOCVSim", "Destroying current EOCVSim ($hexCode) due to $reason")
+        Log.warn(TAG, "Destroying current EOCVSim ($hexCode) due to $reason")
 
         //stop recording session if there's currently an ongoing one
         currentRecordingSession?.stopRecordingSession()
         currentRecordingSession?.discardVideo()
 
-        Log.info("EOCVSim", "Trying to save config file...")
+        Log.info(TAG, "Trying to save config file...")
 
-        configManager.saveToFile() //
+        inputSourceManager.currentInputSource?.close()
+        workspaceManager.stopFileWatcher()
+        configManager.saveToFile()
         visualizer.close()
 
         eocvSimThread.interrupt()
@@ -194,21 +241,24 @@ class EOCVSim(val params: Parameters = Parameters()) {
     }
 
     fun restart() {
-        Log.info("EOCVSim", "Restarting...")
+        Log.info(TAG, "Restarting...")
 
         Log.blank()
         destroy(DestroyReason.RESTART)
         Log.blank()
 
-        Thread({ EOCVSim().init() }, "main").start() //run next instance on a separate thread for the old one to get interrupted and ended
+        Thread(
+            { EOCVSim().init() },
+            "main"
+        ).start() //run next instance on a separate thread for the old one to get interrupted and ended
     }
 
     fun startRecordingSession() {
-        if(currentRecordingSession == null) {
+        if (currentRecordingSession == null) {
             currentRecordingSession = VideoRecordingSession(fpsLimiter.maxFPS, configManager.config.videoRecordingSize)
             currentRecordingSession!!.startRecordingSession()
 
-            Log.info("EOCVSim", "Recording session started")
+            Log.info(TAG, "Recording session started")
 
             pipelineManager.pipelineOutputPosters.add(currentRecordingSession!!.matPoster)
         }
@@ -218,67 +268,72 @@ class EOCVSim(val params: Parameters = Parameters()) {
     fun stopRecordingSession() {
         currentRecordingSession?.let { itVideo ->
 
-            visualizer.pipelineSelectorPanel.pipelineRecordBtt.isEnabled = false
+            visualizer.pipelineSelectorPanel.buttonsPanel.pipelineRecordBtt.isEnabled = false
 
             itVideo.stopRecordingSession()
             pipelineManager.pipelineOutputPosters.remove(itVideo.matPoster)
 
-            Log.info("EOCVSim", "Recording session stopped")
+            Log.info(TAG, "Recording session stopped")
 
-            DialogFactory.createFileChooser(visualizer.frame, DialogFactory.FileChooser.Mode.SAVE_FILE_SELECT, FileFilters.recordedVideoFilter)
-                    .addCloseListener { _: Int, file: File?, selectedFileFilter: FileFilter? ->
-                        onMainUpdate.doOnce {
-                            if(file != null) {
+            DialogFactory.createFileChooser(
+                visualizer.frame,
+                DialogFactory.FileChooser.Mode.SAVE_FILE_SELECT, FileFilters.recordedVideoFilter
+            ).addCloseListener { _: Int, file: File?, selectedFileFilter: FileFilter? ->
+                onMainUpdate.doOnce {
+                    if (file != null) {
 
-                                var correctedFile = File(file.absolutePath)
-                                val extension = SysUtil.getExtensionByStringHandling(file.name)
+                        var correctedFile = File(file.absolutePath)
+                        val extension = SysUtil.getExtensionByStringHandling(file.name)
 
-                                if (selectedFileFilter is FileNameExtensionFilter) { //if user selected an extension
-                                    //get selected extension
-                                    correctedFile = file + "." + selectedFileFilter.extensions[0]
-                                } else if(extension.isPresent) {
-                                    if(!extension.get().equals("avi", true)) {
-                                        correctedFile = file + ".avi"
-                                    }
-                                } else {
-                                    correctedFile = file + ".avi"
-                                }
-
-                                if (correctedFile.exists()) {
-                                    SwingUtilities.invokeLater {
-                                        if (DialogFactory.createFileAlreadyExistsDialog(this) == FileAlreadyExists.UserChoice.REPLACE) {
-                                            onMainUpdate.doOnce { itVideo.saveTo(correctedFile) }
-                                        }
-                                    }
-                                } else {
-                                    itVideo.saveTo(correctedFile)
-                                }
-                            } else {
-                                itVideo.discardVideo()
+                        if (selectedFileFilter is FileNameExtensionFilter) { //if user selected an extension
+                            //get selected extension
+                            correctedFile = file + "." + selectedFileFilter.extensions[0]
+                        } else if (extension.isPresent) {
+                            if (!extension.get().equals("avi", true)) {
+                                correctedFile = file + ".avi"
                             }
-
-                            currentRecordingSession = null
-                            visualizer.pipelineSelectorPanel.pipelineRecordBtt.isEnabled = true
+                        } else {
+                            correctedFile = file + ".avi"
                         }
+
+                        if (correctedFile.exists()) {
+                            SwingUtilities.invokeLater {
+                                if (DialogFactory.createFileAlreadyExistsDialog(this) == FileAlreadyExists.UserChoice.REPLACE) {
+                                    onMainUpdate.doOnce { itVideo.saveTo(correctedFile) }
+                                }
+                            }
+                        } else {
+                            itVideo.saveTo(correctedFile)
+                        }
+                    } else {
+                        itVideo.discardVideo()
                     }
+
+                    currentRecordingSession = null
+                    visualizer.pipelineSelectorPanel.buttonsPanel.pipelineRecordBtt.isEnabled = true
+                }
+            }
         }
     }
 
     fun isCurrentlyRecording() = currentRecordingSession?.isRecording ?: false
 
     private fun updateVisualizerTitle() {
+        val isBuildRunning = if (pipelineManager.compiledPipelineManager.isBuildRunning) "(Building)" else ""
+
+        val workspaceMsg = " - ${config.workspacePath} $isBuildRunning"
+
         val pipelineFpsMsg = " (${pipelineManager.pipelineFpsCounter.fps} Pipeline FPS)"
         val posterFpsMsg = " (${visualizer.viewport.matPoster.fpsCounter.fps} Poster FPS)"
         val isPaused = if (pipelineManager.paused) " (Paused)" else ""
         val isRecording = if (isCurrentlyRecording()) " RECORDING" else ""
-        val memoryMsg = " (${SysUtil.getMemoryUsageMB()} MB Java memory used)"
 
-        val msg = isRecording + pipelineFpsMsg + posterFpsMsg + isPaused + memoryMsg
+        val msg = isRecording + pipelineFpsMsg + posterFpsMsg + isPaused
 
         if (pipelineManager.currentPipeline == null) {
-            visualizer.setTitleMessage("No pipeline$msg")
+            visualizer.setTitleMessage("No pipeline$msg${workspaceMsg}")
         } else {
-            visualizer.setTitleMessage(pipelineManager.currentPipelineName + msg)
+            visualizer.setTitleMessage("${pipelineManager.currentPipelineName}$msg${workspaceMsg}")
         }
     }
 

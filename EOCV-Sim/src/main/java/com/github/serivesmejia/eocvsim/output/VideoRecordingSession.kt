@@ -25,8 +25,8 @@ package com.github.serivesmejia.eocvsim.output
 
 import com.github.serivesmejia.eocvsim.gui.util.MatPoster
 import com.github.serivesmejia.eocvsim.util.StrUtil
-import com.github.serivesmejia.eocvsim.util.extension.CvExt.aspectRatio
-import com.github.serivesmejia.eocvsim.util.extension.CvExt.clipTo
+import com.github.serivesmejia.eocvsim.util.extension.aspectRatio
+import com.github.serivesmejia.eocvsim.util.extension.clipTo
 import com.github.serivesmejia.eocvsim.util.fps.FpsCounter
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
@@ -111,7 +111,6 @@ class VideoRecordingSession(val videoFps: Double = 30.0, val videoSize: Size = S
                 Imgproc.resize(inputMat, videoMat, videoSize, 0.0, 0.0, Imgproc.INTER_AREA)
                 compensateFpsWrite(videoMat!!, fpsCounter.fps.toDouble(), videoFps)
             } else { //hmm, not the same aspect ratio, we'll need to do some fancy stuff here...
-
                 val inputW = inputMat.size().width
                 val inputH = inputMat.size().height
 
@@ -139,7 +138,6 @@ class VideoRecordingSession(val videoFps: Double = 30.0, val videoSize: Size = S
                 inputMat.copyTo(submat);
 
                 compensateFpsWrite(videoMat!!, fpsCounter.fps.toDouble(), videoFps)
-
             }
 
             fpsCounter.update()

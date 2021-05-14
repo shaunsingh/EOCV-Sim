@@ -21,7 +21,7 @@
  *
  */
 
-package com.github.serivesmejia.eocvsim.gui.dialog;
+package com.github.serivesmejia.eocvsim.gui.dialog.source;
 
 import com.github.serivesmejia.eocvsim.EOCVSim;
 import com.github.serivesmejia.eocvsim.gui.DialogFactory;
@@ -71,7 +71,7 @@ public class CreateSource {
             sourceTypesStr[i] = sourceTypes[i].coolName;
         }
 
-        JComboBox dropDown = new JComboBox(sourceTypesStr);
+        JComboBox<String> dropDown = new JComboBox<>(sourceTypesStr);
         dropDownPanel.add(dropDown);
         contentsPane.add(dropDownPanel);
 

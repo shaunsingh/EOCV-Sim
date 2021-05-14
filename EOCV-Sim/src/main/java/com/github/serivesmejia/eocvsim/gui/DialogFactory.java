@@ -25,6 +25,10 @@ package com.github.serivesmejia.eocvsim.gui;
 
 import com.github.serivesmejia.eocvsim.EOCVSim;
 import com.github.serivesmejia.eocvsim.gui.dialog.*;
+import com.github.serivesmejia.eocvsim.gui.dialog.source.CreateCameraSource;
+import com.github.serivesmejia.eocvsim.gui.dialog.source.CreateImageSource;
+import com.github.serivesmejia.eocvsim.gui.dialog.source.CreateSource;
+import com.github.serivesmejia.eocvsim.gui.dialog.source.CreateVideoSource;
 import com.github.serivesmejia.eocvsim.input.SourceType;
 
 import javax.swing.*;
@@ -81,6 +85,10 @@ public class DialogFactory {
 
     public static void createAboutDialog(EOCVSim eocvSim) {
         invokeLater(() -> new About(eocvSim.visualizer.frame, eocvSim));
+    }
+
+    public static void createBuildOutput(EOCVSim eocvSim) {
+        invokeLater(() -> new BuildOutput(eocvSim.visualizer.frame, eocvSim));
     }
 
     public static FileAlreadyExists.UserChoice createFileAlreadyExistsDialog(EOCVSim eocvSim) {

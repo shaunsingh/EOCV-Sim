@@ -27,25 +27,33 @@ package com.github.serivesmejia.eocvsim.gui.component.visualizer
 import com.github.serivesmejia.eocvsim.EOCVSim
 import com.github.serivesmejia.eocvsim.gui.DialogFactory
 import com.github.serivesmejia.eocvsim.gui.Visualizer
+import com.github.serivesmejia.eocvsim.gui.dialog.BuildOutput
 import com.github.serivesmejia.eocvsim.gui.util.GuiUtil
 import com.github.serivesmejia.eocvsim.input.SourceType
-import java.awt.event.ActionEvent
+import com.github.serivesmejia.eocvsim.workspace.util.VSCodeLauncher
+import java.awt.Desktop
+import java.net.URI
 import javax.swing.JMenu
 import javax.swing.JMenuBar
 import javax.swing.JMenuItem
 
 class TopMenuBar(visualizer: Visualizer, eocvSim: EOCVSim) : JMenuBar() {
 
-    @JvmField val mFileMenu = JMenu("File")
-    @JvmField val mEditMenu = JMenu("Edit")
-    @JvmField val mHelpMenu = JMenu("Help")
+    @JvmField val mFileMenu   = JMenu("File")
+    @JvmField val mWorkspMenu = JMenu("Workspace")
+    @JvmField val mEditMenu   = JMenu("Edit")
+    @JvmField val mHelpMenu   = JMenu("Help")
+
+    @JvmField val workspCompile = JMenuItem("Build java files")
 
     init {
-        val fileNewSubmenu = JMenu("New")
-        mFileMenu.add(fileNewSubmenu)
+        // FILE
+
+        val fileNew = JMenu("New")
+        mFileMenu.add(fileNew)
 
         val fileNewInputSourceSubmenu = JMenu("Input Source")
-        fileNewSubmenu.add(fileNewInputSourceSubmenu)
+        fileNew.add(fileNewInputSourceSubmenu)
 
         //add all input source types to top bar menu
         for (type in SourceType.values()) {
@@ -60,32 +68,83 @@ class TopMenuBar(visualizer: Visualizer, eocvSim: EOCVSim) : JMenuBar() {
             fileNewInputSourceSubmenu.add(fileNewInputSourceItem)
         }
 
-        val fileSaveMatItem = JMenuItem("Save Mat to disk")
+        val fileSaveMat = JMenuItem("Save current image")
 
-        fileSaveMatItem.addActionListener {
+        fileSaveMat.addActionListener {
             GuiUtil.saveMatFileChooser(
                 visualizer.frame,
                 visualizer.viewport.lastVisualizedMat,
                 eocvSim
             )
         }
-
-        mFileMenu.add(fileSaveMatItem)
+        mFileMenu.add(fileSaveMat)
 
         mFileMenu.addSeparator()
 
         val fileRestart = JMenuItem("Restart")
 
-        fileRestart.addActionListener { eocvSim.onMainUpdate.doOnce(Runnable { eocvSim.restart() }) }
-
+        fileRestart.addActionListener { eocvSim.onMainUpdate.doOnce { eocvSim.restart() } }
         mFileMenu.add(fileRestart)
+
         add(mFileMenu)
+
+        //WORKSPACE
+
+        val workspSetWorkspace = JMenuItem("Select workspace")
+
+        workspSetWorkspace.addActionListener { visualizer.selectPipelinesWorkspace() }
+        mWorkspMenu.add(workspSetWorkspace)
+
+        workspCompile.addActionListener { visualizer.asyncCompilePipelines() }
+        mWorkspMenu.add(workspCompile)
+
+        val workspBuildOutput = JMenuItem("Output")
+
+        workspBuildOutput.addActionListener {
+            if(!BuildOutput.isAlreadyOpened)
+                DialogFactory.createBuildOutput(eocvSim)
+        }
+        mWorkspMenu.add(workspBuildOutput)
+
+        mWorkspMenu.addSeparator()
+
+        val workspVSCode = JMenu("VS Code")
+
+        val workspVSCodeOpen = JMenuItem("Open in current workspace")
+
+        workspVSCodeOpen.addActionListener {
+            VSCodeLauncher.asyncLaunch(eocvSim.workspaceManager.workspaceFile)
+        }
+        workspVSCode.add(workspVSCodeOpen)
+
+        val workspVSCodeCreate = JMenuItem("Create VS Code workspace")
+
+        workspVSCodeCreate.addActionListener { visualizer.createVSCodeWorkspace() }
+        workspVSCode.add(workspVSCodeCreate)
+
+        mWorkspMenu.add(workspVSCode)
+
+        add(mWorkspMenu)
+
+        // EDIT
 
         val editSettings = JMenuItem("Settings")
         editSettings.addActionListener { DialogFactory.createConfigDialog(eocvSim) }
 
         mEditMenu.add(editSettings)
         add(mEditMenu)
+
+        // HELP
+
+        val helpUsage = JMenuItem("Usage")
+        helpUsage.addActionListener {
+            Desktop.getDesktop().browse(URI("https://github.com/serivesmejia/EOCV-Sim/blob/master/USAGE.md"))
+        }
+
+        helpUsage.isEnabled = Desktop.isDesktopSupported()
+        mHelpMenu.add(helpUsage)
+
+        mHelpMenu.addSeparator()
 
         val helpAbout = JMenuItem("About")
         helpAbout.addActionListener { DialogFactory.createAboutDialog(eocvSim) }

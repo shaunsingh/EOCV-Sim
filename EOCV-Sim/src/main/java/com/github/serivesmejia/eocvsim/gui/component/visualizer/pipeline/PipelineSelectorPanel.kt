@@ -21,10 +21,11 @@
  *
  */
 
-package com.github.serivesmejia.eocvsim.gui.component.visualizer
+package com.github.serivesmejia.eocvsim.gui.component.visualizer.pipeline
 
 import com.github.serivesmejia.eocvsim.EOCVSim
 import com.github.serivesmejia.eocvsim.pipeline.PipelineManager
+import com.github.serivesmejia.eocvsim.pipeline.PipelineSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -48,16 +49,17 @@ class PipelineSelectorPanel(private val eocvSim: EOCVSim) : JPanel() {
 
     val pipelineSelector         = JList<String>()
     val pipelineSelectorScroll   = JScrollPane()
-    var pipelineButtonsContainer = JPanel()
-    val pipelinePauseBtt         = JToggleButton("Pause")
-    val pipelineRecordBtt        = JToggleButton("Record")
+
+    val pipelineSelectorLabel = JLabel("Pipelines")
+
+    val buttonsPanel = PipelineSelectorButtonsPanel(eocvSim)
+
+    var allowPipelineSwitching = true
 
     private var beforeSelectedPipeline = -1
 
     init {
         layout = FlowLayout(FlowLayout.CENTER)
-
-        val pipelineSelectorLabel = JLabel("Pipelines")
 
         pipelineSelectorLabel.font = pipelineSelectorLabel.font.deriveFont(20.0f)
 
@@ -78,36 +80,17 @@ class PipelineSelectorPanel(private val eocvSim: EOCVSim) : JPanel() {
 
         add(pipelineSelectorScrollContainer)
 
-        pipelineButtonsContainer = JPanel(FlowLayout(FlowLayout.CENTER))
-
-        pipelineButtonsContainer.add(pipelinePauseBtt)
-        pipelineButtonsContainer.add(pipelineRecordBtt)
-
-        add(pipelineButtonsContainer)
+        add(buttonsPanel)
 
         registerListeners()
     }
 
     private fun registerListeners() {
-        //listener for changing pause state
-        pipelinePauseBtt.addActionListener {
-            val selected = pipelinePauseBtt.isSelected
-            pipelinePauseBtt.text = if (selected) "Resume" else "Pause"
-            eocvSim.onMainUpdate.doOnce { eocvSim.pipelineManager.setPaused(selected) }
-        }
-
-        pipelineRecordBtt.addActionListener {
-            eocvSim.onMainUpdate.doOnce {
-                if (pipelineRecordBtt.isSelected) {
-                    if (!eocvSim.isCurrentlyRecording()) eocvSim.startRecordingSession()
-                } else {
-                    if (eocvSim.isCurrentlyRecording()) eocvSim.stopRecordingSession()
-                }
-            }
-        }
 
         //listener for changing pipeline
         pipelineSelector.addListSelectionListener { evt: ListSelectionEvent ->
+            if(!allowPipelineSwitching) return@addListSelectionListener
+
             if (pipelineSelector.selectedIndex != -1) {
                 val pipeline = pipelineSelector.selectedIndex
 
@@ -134,8 +117,9 @@ class PipelineSelectorPanel(private val eocvSim: EOCVSim) : JPanel() {
     fun updatePipelinesList() = runBlocking {
         launch(Dispatchers.Swing) {
             val listModel = DefaultListModel<String>()
-            for (pipelineClass in eocvSim.pipelineManager.pipelines) {
-                listModel.addElement(pipelineClass.simpleName)
+            for (pipeline in eocvSim.pipelineManager.pipelines) {
+                val source = if(pipeline.source == PipelineSource.CLASSPATH) "C" else "R"
+                listModel.addElement("[$source] ${pipeline.clazz.simpleName}")
             }
 
             pipelineSelector.fixedCellWidth = 240

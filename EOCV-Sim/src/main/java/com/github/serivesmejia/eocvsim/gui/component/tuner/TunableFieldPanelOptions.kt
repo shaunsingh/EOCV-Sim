@@ -26,8 +26,8 @@ package com.github.serivesmejia.eocvsim.gui.component.tuner
 import com.github.serivesmejia.eocvsim.EOCVSim
 import com.github.serivesmejia.eocvsim.gui.Icons
 import com.github.serivesmejia.eocvsim.gui.component.PopupX
-import com.github.serivesmejia.eocvsim.util.extension.CvExt.cvtColor
-import com.github.serivesmejia.eocvsim.util.extension.NumberExt.clipUpperZero
+import com.github.serivesmejia.eocvsim.util.extension.cvtColor
+import com.github.serivesmejia.eocvsim.util.extension.clipUpperZero
 import java.awt.FlowLayout
 import java.awt.GridLayout
 import java.awt.event.ComponentAdapter
@@ -57,11 +57,11 @@ class TunableFieldPanelOptions(val fieldPanel: TunableFieldPanel,
         set(value) {
             when(value) {
                 TunableFieldPanel.Mode.SLIDERS -> {
-                    textBoxSliderToggle.icon = sliderIco
+                    textBoxSliderToggle.icon = textBoxIco
                     textBoxSliderToggle.isSelected = true
                 }
                 TunableFieldPanel.Mode.TEXTBOXES -> {
-                    textBoxSliderToggle.icon = textBoxIco
+                    textBoxSliderToggle.icon = sliderIco
                     textBoxSliderToggle.isSelected = false
                 }
             }
@@ -180,7 +180,7 @@ class TunableFieldPanelOptions(val fieldPanel: TunableFieldPanel,
     fun reevaluateConfig() {
         //only reevaluate if our config is not local
         if(configPanel.localConfig.source != TunableFieldPanelConfig.ConfigSource.LOCAL) {
-            configPanel.applyFromEOCVSimConfig() 
+            configPanel.applyFromEOCVSimConfig()
         }
     }
 

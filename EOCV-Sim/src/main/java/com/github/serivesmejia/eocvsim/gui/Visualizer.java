@@ -28,14 +28,17 @@ import com.github.serivesmejia.eocvsim.EOCVSim;
 import com.github.serivesmejia.eocvsim.gui.component.Viewport;
 import com.github.serivesmejia.eocvsim.gui.component.tuner.ColorPicker;
 import com.github.serivesmejia.eocvsim.gui.component.tuner.TunableFieldPanel;
-import com.github.serivesmejia.eocvsim.gui.component.visualizer.PipelineSelectorPanel;
+import com.github.serivesmejia.eocvsim.gui.component.visualizer.pipeline.PipelineSelectorPanel;
 import com.github.serivesmejia.eocvsim.gui.component.visualizer.SourceSelectorPanel;
 import com.github.serivesmejia.eocvsim.gui.component.visualizer.TelemetryPanel;
 import com.github.serivesmejia.eocvsim.gui.component.visualizer.TopMenuBar;
 import com.github.serivesmejia.eocvsim.gui.theme.Theme;
 import com.github.serivesmejia.eocvsim.gui.util.GuiUtil;
+import com.github.serivesmejia.eocvsim.gui.util.ReflectTaskbar;
+import com.github.serivesmejia.eocvsim.pipeline.compiler.PipelineCompiler;
 import com.github.serivesmejia.eocvsim.util.Log;
-import org.firstinspires.ftc.robotcore.external.Telemetry;
+import com.github.serivesmejia.eocvsim.workspace.util.template.GradleWorkspaceTemplate;
+import kotlin.Unit;
 
 import javax.swing.*;
 import java.awt.*;
@@ -101,12 +104,12 @@ public class Visualizer {
     }
 
     public void init(Theme theme) {
-
-        if(Taskbar.isTaskbarSupported()){
+        if(ReflectTaskbar.INSTANCE.isUsable()){
             try {
                 //set icon for mac os (and other systems which do support this method)
-                Taskbar.getTaskbar().setIconImage(ICO_EOCVSIM.getImage());
-            } catch (final UnsupportedOperationException ignored) {
+                ReflectTaskbar.INSTANCE.setIconImage(ICO_EOCVSIM.getImage());
+            } catch (final UnsupportedOperationException e) {
+                Log.warn("Visualizer", "Setting the Taskbar icon image is not supported on this platform");
             } catch (final SecurityException e) {
                 Log.error("Visualizer", "Security exception while setting TaskBar icon", e);
             }
@@ -115,7 +118,7 @@ public class Visualizer {
         try {
             theme.install();
         } catch (Exception e) {
-            Log.error("Visualizer", "Failed to set theme " + theme.name(), e);
+            Log.error("Visualizer", "Failed to install theme " + theme.name(), e);
         }
 
         Icons.INSTANCE.setDark(FlatLaf.isLafDark());
@@ -271,16 +274,25 @@ public class Visualizer {
         frame.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent evt) {
-                double ratio = frame.getSize().getHeight() / 820;
-                int columns = (int) Math.round(8 * ratio);
+                double ratio = frame.getSize().getHeight() / 645;
+
+                double fontSize = 15.5 * ratio;
+                int columns = (int) Math.round(5 * ratio);
+
+                Font font = pipelineSelectorPanel.getPipelineSelectorLabel().getFont().deriveFont((float)fontSize);
 
                 pipelineSelectorPanel.getPipelineSelector().setVisibleRowCount(columns);
+                pipelineSelectorPanel.getPipelineSelectorLabel().setFont(font);
                 pipelineSelectorPanel.revalAndRepaint();
 
+                columns = (int) Math.round(5 * ratio);
+                
                 sourceSelectorPanel.getSourceSelector().setVisibleRowCount(columns);
+                sourceSelectorPanel.getSourceSelectorLabel().setFont(font);
                 sourceSelectorPanel.revalAndRepaint();
 
                 telemetryPanel.getTelemetryList().setVisibleRowCount(columns);
+                telemetryPanel.getTelemetryLabel().setFont(font);
                 telemetryPanel.revalAndRepaint();
 
                 rightContainer.revalidate();
@@ -290,8 +302,9 @@ public class Visualizer {
 
         //stop color-picking mode when changing pipeline
         //eocvSim.pipelineManager.onPipelineChange.doPersistent(() -> colorPicker.stopPicking());
-
     }
+
+    public boolean hasFinishedInit() { return hasFinishedInitializing; }
 
     public void waitForFinishingInit() {
         while (!hasFinishedInitializing) {
@@ -369,10 +382,60 @@ public class Visualizer {
         imageTunerSplitPane.updateUI();
     }
 
+    public void asyncCompilePipelines() {
+        if(PipelineCompiler.Companion.getIS_USABLE()) {
+            menuBar.workspCompile.setEnabled(false);
+            pipelineSelectorPanel.getButtonsPanel().getPipelineCompileBtt().setEnabled(false);
+
+            eocvSim.pipelineManager.compiledPipelineManager.asyncCompile((result) -> {
+                menuBar.workspCompile.setEnabled(true);
+                pipelineSelectorPanel.getButtonsPanel().getPipelineCompileBtt().setEnabled(true);
+
+                return Unit.INSTANCE;
+            });
+        } else {
+            asyncPleaseWaitDialog(
+                    "Runtime compilation is not supported on this JVM",
+                    "For further info, check the EOCV-Sim GitHub repo",
+                    "Close",
+                    new Dimension(320, 160),
+                    true, true
+            );
+        }
+    }
+
+    public void selectPipelinesWorkspace() {
+        DialogFactory.createFileChooser(
+                frame, DialogFactory.FileChooser.Mode.DIRECTORY_SELECT
+        ).addCloseListener((OPTION, selectedFile, selectedFileFilter) -> {
+            if (OPTION == JFileChooser.APPROVE_OPTION) {
+                eocvSim.onMainUpdate.doOnce(() -> {
+                    eocvSim.workspaceManager.setWorkspaceFile(selectedFile);
+                });
+                asyncCompilePipelines();
+            }
+        });
+    }
+
+    public void createVSCodeWorkspace() {
+        DialogFactory.createFileChooser(frame, DialogFactory.FileChooser.Mode.DIRECTORY_SELECT)
+        .addCloseListener((OPTION, selectedFile, selectedFileFilter) -> {
+            if(OPTION == JFileChooser.APPROVE_OPTION) {
+                if(selectedFile.isDirectory() && Objects.requireNonNull(selectedFile.listFiles()).length == 0) {
+                    eocvSim.workspaceManager.createWorkspaceWithTemplateAsync(selectedFile, GradleWorkspaceTemplate.INSTANCE);
+                } else {
+                    asyncPleaseWaitDialog(
+                            "The selected directory must be empty", "Select an empty directory or create a new one",
+                            "Retry", new Dimension(320, 160), true, true
+                    ).onCancel(this::createVSCodeWorkspace);
+                }
+            }
+        });
+    }
+
     // PLEASE WAIT DIALOGS
 
     public boolean pleaseWaitDialog(JDialog diag, String message, String subMessage, String cancelBttText, Dimension size, boolean cancellable, AsyncPleaseWaitDialog apwd, boolean isError) {
-
         final JDialog dialog = diag == null ? new JDialog(this.frame) : diag;
 
         boolean addSubMessage = subMessage != null;
@@ -430,8 +493,9 @@ public class Visualizer {
             apwd.subMsg = subMsg;
             apwd.cancelBtt = cancelBtt;
         }
-
-        dialog.setSize(Objects.requireNonNullElseGet(size, () -> new Dimension(400, 200)));
+        
+        if(size == null) size = new Dimension(400, 200);
+        dialog.setSize(size);
 
         dialog.setLocationRelativeTo(null);
         dialog.setResizable(false);

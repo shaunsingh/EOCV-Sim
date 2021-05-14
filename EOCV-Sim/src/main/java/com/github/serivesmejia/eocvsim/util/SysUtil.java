@@ -31,7 +31,10 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class SysUtil {
@@ -41,7 +44,6 @@ public class SysUtil {
     public static String GH_NATIVE_LIBS_URL = "https://github.com/serivesmejia/OpenCVNativeLibs/raw/master/";
 
     public static OperatingSystem getOS() {
-
         String osName = System.getProperty("os.name").toLowerCase();
 
         if (osName.contains("win")) {
@@ -53,11 +55,9 @@ public class SysUtil {
         }
 
         return OperatingSystem.UNKNOWN;
-
     }
 
-    public static void loadCvNativeLib() {
-
+    public static boolean loadCvNativeLib() {
         String os = null;
         String fileExt = null;
 
@@ -78,12 +78,10 @@ public class SysUtil {
 
         boolean is64bit = System.getProperty("sun.arch.data.model").contains("64"); //Checking if JVM is 64 bits or not
 
-        loadLib(os, fileExt, is64bit, Core.NATIVE_LIBRARY_NAME, 0);
-
+        return loadLib(os, fileExt, is64bit, Core.NATIVE_LIBRARY_NAME, 0);
     }
 
-    public static void loadLib(String os, String fileExt, boolean is64bit, String name, int attempts) {
-
+    public static boolean loadLib(String os, String fileExt, boolean is64bit, String name, int attempts) {
         String arch = is64bit ? "64" : "32"; //getting os arch
 
         String libName = os + arch + "_" + name; //resultant lib name from those two
@@ -109,7 +107,6 @@ public class SysUtil {
             Log.info("SysUtil", "Successfully loaded native lib \"" + libName + "\"");
 
         } catch (UnsatisfiedLinkError ex) {
-
             ex.printStackTrace();
 
             if (attempts < 4) {
@@ -118,12 +115,31 @@ public class SysUtil {
                 loadLib(os, fileExt, !is64bit, Core.NATIVE_LIBRARY_NAME, attempts + 1);
             } else {
                 ex.printStackTrace();
-                Log.error("SysUtil", "Failure loading lib \"" + libName + "\" 4 times, the application will exit now.");
-                System.exit(1);
+                Log.error("SysUtil", "Failure loading lib \"" + libName + "\" 4 times, giving up.");
+                return false;
             }
-
         }
 
+        return true;
+    }
+
+    public static void copyStream(File inFile, OutputStream out) throws IOException {
+        InputStream in = new FileInputStream(inFile);
+        try {
+            copyStream(in, out);
+        } finally { in.close(); }
+    }
+
+    public static void copyStream(InputStream in, OutputStream out) throws IOException {
+        int cbBuffer = Math.min(4096, in.available());
+        byte[] buffer = new byte[cbBuffer];
+
+        while(true) {
+            int cbRead = in.read(buffer);
+            if(cbRead <= 0) break;
+
+            out.write(buffer, 0, cbRead);
+        }
     }
 
     public static CopyFileIsData copyFileIs(InputStream is, File toPath, boolean replaceIfExisting) throws IOException {
@@ -151,13 +167,10 @@ public class SysUtil {
     }
 
     public static CopyFileIsData copyFileIsTemp(InputStream is, String fileName, boolean replaceIfExisting) throws IOException {
-
         String tmpDir = System.getProperty("java.io.tmpdir");
-
         File tempFile = new File(tmpDir + File.separator + fileName);
 
         return copyFileIs(is, tempFile, replaceIfExisting);
-
     }
 
     public static long getMemoryUsageMB() {
@@ -170,7 +183,6 @@ public class SysUtil {
     }
 
     public static String loadFileStr(File f) {
-
         String content = "";
 
         try {
@@ -180,11 +192,14 @@ public class SysUtil {
         }
 
         return content;
+    }
 
+    public static void replaceStrInFile(File f, String target, String replacement) {
+        String fileContents = loadFileStr(f);
+        saveFileStr(f, fileContents.replace(target, replacement));
     }
 
     public static boolean saveFileStr(File f, String contents) {
-
         try {
             FileWriter fw = new FileWriter(f);
             fw.append(contents);
@@ -194,7 +209,6 @@ public class SysUtil {
             e.printStackTrace();
             return false;
         }
-
     }
 
     public static void download(String url, String fileName) throws Exception {
@@ -207,10 +221,149 @@ public class SysUtil {
         return new File(System.getProperty("user.home") + File.separator);
     }
 
+    public static File getEOCVSimFolder() {
+        File f = new File(getAppData() + File.separator + ".eocvsim");
+        f.mkdir();
+        return f;
+    }
+
     public static Optional<String> getExtensionByStringHandling(String filename) {
         return Optional.ofNullable(filename)
                 .filter(f -> f.contains("."))
                 .map(f -> f.substring(filename.lastIndexOf(".") + 1));
+    }
+
+    public static List<File> filesUnder(File parent, Predicate<File> predicate) {
+        ArrayList<File> result = new ArrayList<>();
+
+        if(parent.isDirectory()) {
+            for(File child : parent.listFiles()) {
+                result.addAll(filesUnder(child, predicate));
+            }
+        } else if(parent.exists() && (predicate != null && predicate.test(parent))) {
+            result.add(parent.getAbsoluteFile());
+        }
+
+        return result;
+    }
+
+    public static List<File> filesUnder(File parent, String extension) {
+        return filesUnder(parent, (f) -> f.getName().endsWith(extension));
+    }
+
+    public static List<File> filesUnder(File parent) {
+        return filesUnder(parent, (f) -> true);
+    }
+
+    public static List<File> filesIn(File parent, Predicate<File> predicate) {
+        ArrayList<File> result = new ArrayList<>();
+
+        if(!parent.exists()) return result;
+
+        if(parent.isDirectory()) {
+            for(File f : parent.listFiles()) {
+                if(predicate != null && predicate.test(f))
+                    result.add(f);
+            }
+        } else {
+            if(predicate != null && predicate.test(parent))
+                result.add(parent);
+        }
+
+        return result;
+    }
+
+    public static List<File> filesIn(File parent, String extension) {
+        return filesIn(parent, (f) -> f.getName().endsWith(extension));
+    }
+
+    public static void deleteFilesUnder(File parent, Predicate<File> predicate) {
+        for(File file : parent.listFiles()) {
+            if(file.isDirectory())
+                deleteFilesUnder(file, predicate);
+
+            if(predicate != null) {
+                if(predicate.test(file)) file.delete();
+            } else {
+                file.delete();
+            }
+        }
+    }
+
+    public static void deleteFilesUnder(File parent) {
+        deleteFilesUnder(parent, null);
+    }
+
+    public static boolean migrateFile(File oldFile, File newFile) {
+        if(newFile.exists() || !oldFile.exists()) return false;
+
+        Log.info("SysUtil", "Migrating old file " + oldFile.getAbsolutePath() + "  to " + newFile.getAbsolutePath());
+
+        try {
+            Files.move(oldFile.toPath(), newFile.toPath());
+        } catch (IOException e) {
+            Log.warn("SysUtil", "Failed to migrate old file " + oldFile.getAbsolutePath());
+            return false;
+        }
+
+        return true;
+    }
+
+    public static File getRelativePath(File root, File child) {
+        File result = new File("");
+
+        while(!root.equals(child)) {
+            File parent = child.getParentFile();
+            result = new File(new File(child.getName()), result.getPath());
+
+            if(parent == null) break;
+
+            child = parent;
+        }
+
+        return result;
+    }
+
+    public static List<File> getClasspathFiles() {
+        String[] classpaths = System.getProperty("java.class.path").split(File.pathSeparator);
+        ArrayList<File> files = new ArrayList<>();
+
+        for(String path : classpaths) {
+            files.add(new File(path));
+        }
+
+        return files;
+    }
+
+    public static CommandResult runShellCommand(String command) {
+        CommandResult result = new CommandResult();
+
+        ProcessBuilder processBuilder = new ProcessBuilder();
+        if (OS == OperatingSystem.WINDOWS) {
+            processBuilder.command("cmd.exe", "/c", command);
+        } else {
+            processBuilder.command("bash", "-c", command);
+        }
+
+        try {
+            Process process = processBuilder.start();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+
+            result.exitCode = process.waitFor();
+
+            String line = "";
+            StringBuilder message = new StringBuilder();
+
+            while((line = reader.readLine()) != null) {
+                message.append(line);
+            }
+
+            result.output = message.toString();
+        } catch (IOException | InterruptedException e) {
+            result.output = StrUtil.fromException(e);
+        }
+
+        return result;
     }
 
     public enum OperatingSystem {
@@ -221,10 +374,13 @@ public class SysUtil {
     }
 
     public static class CopyFileIsData {
-
         public File file = null;
         public boolean alreadyExists = false;
+    }
 
+    public static class CommandResult {
+        public String output = "";
+        public int exitCode = 0;
     }
 
 }
